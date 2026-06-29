@@ -69,9 +69,9 @@ jobs:
         run: |
           cd ~/.buildozer/android/platform
           if [ ! -d "android-ndk" ]; then
-            wget --timeout=300 https://dl.google.com/android/repository/android-ndk-r25c-linux-x86_64.zip -O android-ndk.zip
+            wget --timeout=300 https://dl.google.com/android/repository/android-ndk-r27d-linux.zip -O android-ndk.zip
             unzip -q android-ndk.zip
-            mv android-ndk-r25c android-ndk
+            mv android-ndk-r27d android-ndk
             rm android-ndk.zip
           fi
 
