@@ -35,56 +35,68 @@ jobs:
             libffi-dev \
             libssl-dev \
             ninja-build \
-            ccache
+            ccache \
+            unzip \
+            openjdk-17-jdk
 
       - name: Install Python dependencies
         run: |
           pip install --upgrade pip
-          pip install buildozer cython
+          pip install buildozer cython pillow
 
-      - name: Cache Android SDK
-        id: cache-android-sdk
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.buildozer/android/platform
-            ~/.buildozer/android/build
-          key: ${{ runner.os }}-android-sdk-${{ hashFiles('buildozer.spec') }}
-
-      - name: Download Android SDK if not cached
-        if: steps.cache-android-sdk.outputs.cache-hit != 'true'
+      - name: Set JAVA_HOME
         run: |
-          mkdir -p ~/.buildozer/android/platform
-          cd ~/.buildozer/android/platform
-          if [ ! -d "android-sdk" ]; then
+          echo "JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64" >> $GITHUB_ENV
+          export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+          echo "PATH=$JAVA_HOME/bin:$PATH" >> $GITHUB_ENV
+
+      - name: Setup Android SDK
+        run: |
+          export ANDROIDSDK=$HOME/android-sdk
+          mkdir -p $ANDROIDSDK
+          
+          if [ ! -d "$ANDROIDSDK/cmdline-tools/latest" ]; then
+            cd $HOME
             wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -O cmdline-tools.zip
             unzip -q cmdline-tools.zip
-            mkdir -p android-sdk/cmdline-tools
-            mv cmdline-tools android-sdk/cmdline-tools/latest
+            mkdir -p $ANDROIDSDK/cmdline-tools
+            mv cmdline-tools $ANDROIDSDK/cmdline-tools/latest
             rm cmdline-tools.zip
           fi
-
-      - name: Download Android NDK if not cached
-        if: steps.cache-android-sdk.outputs.cache-hit != 'true'
-        run: |
-          cd ~/.buildozer/android/platform
-          if [ ! -d "android-ndk" ]; then
-            wget --timeout=300 https://dl.google.com/android/repository/android-ndk-r27d-linux.zip -O android-ndk.zip
-            unzip -q android-ndk.zip
-            mv android-ndk-r27d android-ndk
-            rm android-ndk.zip
-          fi
-
-      - name: Set environment variables
-        run: |
-          echo "ANDROIDSDK=$HOME/.buildozer/android/platform/android-sdk" >> $GITHUB_ENV
-          echo "ANDROIDNDK=$HOME/.buildozer/android/platform/android-ndk" >> $GITHUB_ENV
+          
+          yes | $ANDROIDSDK/cmdline-tools/latest/bin/sdkmanager --licenses || true
+          yes | $ANDROIDSDK/cmdline-tools/latest/bin/sdkmanager "platforms;android-34" "build-tools;34.0.0" || true
+          
+          echo "ANDROIDSDK=$ANDROIDSDK" >> $GITHUB_ENV
+          echo "ANDROIDNDK=$HOME/android-ndk" >> $GITHUB_ENV
           echo "ANDROIDAPI=34" >> $GITHUB_ENV
           echo "ANDROIDMINAPI=21" >> $GITHUB_ENV
 
-      - name: Build debug APK
+      - name: Download and setup Android NDK
         run: |
-          buildozer android debug --verbose 2>&1 | tee build.log
+          export ANDROIDNDK=$HOME/android-ndk
+          
+          if [ ! -d "$ANDROIDNDK/toolchains/llvm/prebuilt/linux-x86_64" ]; then
+            cd $HOME
+            wget --timeout=300 -q https://dl.google.com/android/repository/android-ndk-r27d-linux.zip -O android-ndk.zip
+            unzip -q android-ndk.zip
+            mv android-ndk-r27d $ANDROIDNDK
+            rm android-ndk.zip
+          fi
+
+      - name: Build with buildozer
+        run: |
+          export ANDROIDSDK=$HOME/android-sdk
+          export ANDROIDNDK=$HOME/android-ndk
+          export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+          
+          cd ${{ github.workspace }}
+          buildozer android debug --yes 2>&1 | tee build.log
+
+      - name: List build outputs
+        run: |
+          ls -la ${{ github.workspace }}/bin/ 2>/dev/null || echo "No bin directory"
+          find ${{ github.workspace }} -name "*.apk" 2>/dev/null || echo "No APK found"
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
