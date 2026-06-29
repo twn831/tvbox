@@ -1,0 +1,102 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install system dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y \
+            python3-dev \
+            python3-pip \
+            autoconf \
+            automake \
+            libtool \
+            pkg-config \
+            zlib1g-dev \
+            libncurses5-dev \
+            libffi-dev \
+            libssl-dev \
+            ninja-build \
+            ccache
+
+      - name: Install Python dependencies
+        run: |
+          pip install --upgrade pip
+          pip install buildozer cython
+
+      - name: Cache Android SDK
+        id: cache-android-sdk
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.buildozer/android/platform
+            ~/.buildozer/android/build
+          key: ${{ runner.os }}-android-sdk-${{ hashFiles('buildozer.spec') }}
+
+      - name: Download Android SDK if not cached
+        if: steps.cache-android-sdk.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/.buildozer/android/platform
+          cd ~/.buildozer/android/platform
+          if [ ! -d "android-sdk" ]; then
+            wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -O cmdline-tools.zip
+            unzip -q cmdline-tools.zip
+            mkdir -p android-sdk/cmdline-tools
+            mv cmdline-tools android-sdk/cmdline-tools/latest
+            rm cmdline-tools.zip
+          fi
+
+      - name: Download Android NDK if not cached
+        if: steps.cache-android-sdk.outputs.cache-hit != 'true'
+        run: |
+          cd ~/.buildozer/android/platform
+          if [ ! -d "android-ndk-r28c" ]; then
+            wget -q https://dl.google.com/android/repository/android-ndk-r28c-linux-x86_64.zip -O android-ndk.zip
+            unzip -q android-ndk.zip
+            mv android-ndk-r28c android-ndk
+            rm android-ndk.zip
+          fi
+
+      - name: Set environment variables
+        run: |
+          echo "ANDROIDSDK=$HOME/.buildozer/android/platform/android-sdk" >> $GITHUB_ENV
+          echo "ANDROIDNDK=$HOME/.buildozer/android/platform/android-ndk" >> $GITHUB_ENV
+          echo "ANDROIDAPI=34" >> $GITHUB_ENV
+          echo "ANDROIDMINAPI=21" >> $GITHUB_ENV
+
+      - name: Build debug APK
+        run: |
+          buildozer android debug --verbose 2>&1 | tee build.log
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tvboxmanager-debug.apk
+          path: bin/*.apk
+          retention-days: 7
+
+      - name: Upload build log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build.log
+          retention-days: 7
